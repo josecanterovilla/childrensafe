@@ -1,0 +1,35 @@
+# Infraestructura local de ChildrenSafe (PostgreSQL + Redis).
+# Requiere Docker. Si no tienes Docker, usa una base PostgreSQL gestionada (Neon/Supabase/Railway)
+# y pon su URL en backend/.env (DATABASE_URL).
+#
+#   docker compose -f infra/docker-compose.yml up -d
+#
+services:
+  postgres:
+    image: postgres:16-alpine
+    container_name: childrensafe-postgres
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+      POSTGRES_DB: childrensafe
+    ports:
+      - "5432:5432"
+    volumes:
+      - cs_pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+  redis:
+    image: redis:7-alpine
+    container_name: childrensafe-redis
+    ports:
+      - "6379:6379"
+    volumes:
+      - cs_redisdata:/data
+
+volumes:
+  cs_pgdata:
+  cs_redisdata:

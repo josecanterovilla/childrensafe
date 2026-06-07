@@ -1,0 +1,45 @@
+# ─── Secretos (NUNCA subir) ───────────────────────────────
+.env
+*.env
+!*.env.example
+backend/.env
+
+# ─── Node / backend ───────────────────────────────────────
+node_modules/
+dist/
+coverage/
+*.log
+backend/prisma/*.db
+backend/prisma/*.db-journal
+
+# ─── Flutter / Dart ───────────────────────────────────────
+.dart_tool/
+.packages
+.flutter-plugins
+.flutter-plugins-dependencies
+**/build/
+*.iml
+
+# ─── Android ──────────────────────────────────────────────
+**/android/.gradle/
+**/android/local.properties
+**/android/key.properties
+**/*.keystore
+**/*.jks
+!**/debug.keystore
+
+# ─── iOS / macOS ──────────────────────────────────────────
+**/ios/Pods/
+**/ios/.symlinks/
+**/ios/Flutter/Flutter.framework/
+**/ios/Flutter/Flutter.podspec
+**/Podfile.lock
+
+# ─── Editores / SO ────────────────────────────────────────
+.idea/
+.vscode/
+.DS_Store
+Thumbs.db
+
+# ─── Build local fuera de OneDrive ────────────────────────
+# (CS_BUILD_DIR apunta a C:\csb en local; nunca se versiona)

@@ -1,0 +1,92 @@
+# Codemagic CI/CD para ChildrenSafe (Flutter).
+# Compila en la nube (Linux/Mac limpios) → sin los problemas de OneDrive/ruta larga de Windows,
+# y permite generar el IPA de iOS SIN tener un Mac.
+#
+# Pasos para activarlo:
+#  1. Sube este repo a GitHub (privado).
+#  2. En https://codemagic.io conecta el repositorio.
+#  3. Crea un GRUPO de variables llamado "childrensafe" con:
+#       API_BASE_URL            = https://tu-backend-publico/api   (NO uses 10.114.x en la nube)
+#       GOOGLE_SERVER_CLIENT_ID = <Web Client ID de Google Cloud>  (ver docs/GOOGLE-SIGNIN-SETUP.md)
+#  4. Lanza el workflow. El APK queda en "Artifacts".
+#
+# Nota: para producción en Play Store usa `flutter build appbundle` + firma real (key.properties /
+# Android code signing de Codemagic). Aquí se generan APK release (firmados con debug) para pruebas.
+
+workflows:
+  # ─────────────────────────── App del Tutor (Android) ───────────────────────────
+  parent-android:
+    name: ChildrenSafe Tutor — Android
+    max_build_duration: 60
+    instance_type: linux_x2
+    environment:
+      flutter: stable
+      groups:
+        - childrensafe
+    scripts:
+      - name: Dependencias (shared + parent)
+        script: |
+          (cd apps/shared && flutter pub get)
+          (cd apps/parent && flutter pub get)
+      - name: Analizar
+        script: |
+          cd apps/parent && flutter analyze
+      - name: Build APK (release)
+        script: |
+          cd apps/parent
+          flutter build apk --release \
+            --dart-define=API_BASE_URL=$API_BASE_URL \
+            --dart-define=GOOGLE_SERVER_CLIENT_ID=$GOOGLE_SERVER_CLIENT_ID
+    artifacts:
+      - apps/parent/build/app/outputs/**/*.apk
+    publishing:
+      email:
+        recipients:
+          - tu-correo@ejemplo.com   # cámbialo por tu correo para recibir el APK
+
+  # ─────────────────────────── App del Menor (Android) ───────────────────────────
+  child-android:
+    name: ChildrenSafe Menor — Android
+    max_build_duration: 60
+    instance_type: linux_x2
+    environment:
+      flutter: stable
+      groups:
+        - childrensafe
+    scripts:
+      - name: Dependencias (shared + child)
+        script: |
+          (cd apps/shared && flutter pub get)
+          (cd apps/child && flutter pub get)
+      - name: Analizar
+        script: |
+          cd apps/child && flutter analyze
+      - name: Build APK (release)
+        script: |
+          cd apps/child
+          flutter build apk --release --dart-define=API_BASE_URL=$API_BASE_URL
+    artifacts:
+      - apps/child/build/app/outputs/**/*.apk
+    publishing:
+      email:
+        recipients:
+          - tu-correo@ejemplo.com
+
+  # ─────────────────────────── iOS (requiere cuenta Apple Developer) ───────────────────────────
+  # Descomenta y configura el code signing de iOS en Codemagic (App Store Connect API key + bundle id).
+  # parent-ios:
+  #   name: ChildrenSafe Tutor — iOS
+  #   instance_type: mac_mini_m2
+  #   max_build_duration: 90
+  #   environment:
+  #     flutter: stable
+  #     groups: [childrensafe]
+  #     ios_signing:
+  #       distribution_type: ad_hoc      # o app_store
+  #       bundle_identifier: app.childrensafe.childrensafeParent
+  #   scripts:
+  #     - (cd apps/shared && flutter pub get)
+  #     - cd apps/parent && flutter pub get
+  #     - cd apps/parent && flutter build ipa --release --dart-define=API_BASE_URL=$API_BASE_URL --dart-define=GOOGLE_SERVER_CLIENT_ID=$GOOGLE_SERVER_CLIENT_ID
+  #   artifacts:
+  #     - apps/parent/build/ios/ipa/*.ipa

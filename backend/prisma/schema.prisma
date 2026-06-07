@@ -1,0 +1,438 @@
+// ChildrenSafe — modelo de datos
+// Principio: minimización. No se almacena nada del menor que no sea necesario para protegerlo.
+// Ubicaciones con retención limitada (purga automática). Sin identificadores publicitarios.
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+// ─────────────────────────── Enums ───────────────────────────
+
+enum UserStatus {
+  ACTIVE
+  SUSPENDED
+  DELETED
+}
+
+enum MemberRole {
+  PARENT // control total dentro de la familia
+  GUARDIAN // permisos limitados configurables
+  CHILD // menor supervisado (transparente)
+}
+
+enum Platform {
+  IOS
+  ANDROID
+}
+
+enum DeviceStatus {
+  ACTIVE
+  REVOKED
+}
+
+enum PairingStatus {
+  PENDING // creado, esperando canje
+  CONSUMED // canjeado correctamente (un solo uso)
+  EXPIRED // venció antes de canjearse
+  REVOKED // anulado por el tutor
+}
+
+enum AgeBand {
+  EARLY_CHILD // 0-7  reglas simples, máxima protección
+  CHILD // 8-11
+  PRETEEN // 12-14
+  TEEN // 15-17  más autonomía y transparencia
+}
+
+enum GeofenceType {
+  HOME
+  SCHOOL
+  ACTIVITY
+  DANGER // zona peligrosa definida por el tutor
+  CUSTOM
+}
+
+enum GeofenceEventType {
+  ENTER
+  EXIT
+}
+
+enum AlertType {
+  SOS
+  GEOFENCE_ENTER
+  GEOFENCE_EXIT
+  LEFT_SAFE_PERIMETER
+  LOW_BATTERY
+  LOCATION_PERMISSION_OFF
+  LOCATION_DISABLED
+  DEVICE_CHANGED
+  ARRIVED_SAFELY
+  UNUSUAL_BEHAVIOR
+  ABUSE_SIGNAL // uso anómalo de la cuenta (ver ABUSE-PREVENTION.md)
+}
+
+enum AlertSeverity {
+  INFO
+  WARNING
+  CRITICAL
+}
+
+enum AlertStatus {
+  OPEN
+  ACKNOWLEDGED
+  RESOLVED
+}
+
+enum ConsentType {
+  PARENTAL_CONSENT // consentimiento verificable del tutor (COPPA/GDPR-K)
+  LOCATION
+  SCREEN_TIME
+  DATA_PROCESSING
+}
+
+// ─────────────────────────── Modelos ───────────────────────────
+
+/// Persona con identidad en el sistema. Los adultos se autentican (email + hash).
+/// Los menores tienen un User para vincular su dispositivo, normalmente SIN credenciales.
+model User {
+  id           String     @id @default(uuid())
+  email        String?    @unique
+  phone        String?    @unique // opcional; del menor solo si es imprescindible
+  passwordHash String? // null para menores y para cuentas solo-Google
+  /// Identificador estable de Google (sub) si la cuenta usa "Entrar con Google".
+  googleId     String?    @unique
+  displayName  String
+  status       UserStatus @default(ACTIVE)
+
+  // MFA opcional (TOTP) para tutores
+  mfaEnabled Boolean @default(false)
+  mfaSecret  String? // cifrado a nivel de campo en producción (KMS)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  memberships    FamilyMember[]
+  devices        Device[]
+  sessions       Session[]
+  createdCodes   PairingCode[]   @relation("CodeCreator")
+  consumedCodes  PairingCode[]   @relation("CodeConsumer")
+  auditLogs      AuditLog[]
+  passwordResets PasswordReset[]
+
+  @@index([status])
+}
+
+/// Token de recuperación de contraseña: de un solo uso, temporal, guardado HASHEADO.
+model PasswordReset {
+  id        String    @id @default(uuid())
+  userId    String
+  tokenHash String    @unique
+  expiresAt DateTime
+  usedAt    DateTime?
+  createdAt DateTime  @default(now())
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@index([expiresAt])
+}
+
+/// Unidad de aislamiento. Todo recurso pertenece a una familia.
+model Family {
+  id        String   @id @default(uuid())
+  name      String
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  members        FamilyMember[]
+  childProfiles  ChildProfile[]
+  devices        Device[]
+  pairingCodes   PairingCode[]
+  geofences      Geofence[]
+  alerts         Alert[]
+  safetyRules    SafetyRule[]
+  consentRecords ConsentRecord[]
+  auditLogs      AuditLog[]
+}
+
+/// Pertenencia de un User a una Family con un rol. Un adulto puede estar en varias familias.
+model FamilyMember {
+  id       String     @id @default(uuid())
+  familyId String
+  userId   String
+  role     MemberRole
+  /// Permisos finos para GUARDIAN (p. ej. {"viewLocation":true,"manageRules":false})
+  permissions Json   @default("{}")
+  createdAt   DateTime @default(now())
+
+  family       Family        @relation(fields: [familyId], references: [id], onDelete: Cascade)
+  user         User          @relation(fields: [userId], references: [id], onDelete: Cascade)
+  childProfile ChildProfile?
+
+  @@unique([familyId, userId])
+  @@index([familyId])
+  @@index([userId])
+}
+
+/// Perfil del menor supervisado. Referenciado por ubicación, alertas y SOS.
+model ChildProfile {
+  id             String  @id @default(uuid())
+  familyId       String
+  familyMemberId String  @unique
+  displayName    String
+  ageBand        AgeBand
+  /// Ajustes por etapa de edad (intervalos de ubicación, autonomía, etc.)
+  settings       Json    @default("{}")
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  family       Family       @relation(fields: [familyId], references: [id], onDelete: Cascade)
+  familyMember FamilyMember @relation(fields: [familyMemberId], references: [id], onDelete: Cascade)
+
+  locations      Location[]
+  alerts         Alert[]
+  sosEvents      SosEvent[]
+  geofenceEvents GeofenceEvent[]
+  consentRecords ConsentRecord[]
+
+  @@index([familyId])
+}
+
+/// Dispositivo registrado (de un tutor o de un menor).
+model Device {
+  id          String       @id @default(uuid())
+  userId      String
+  familyId    String
+  platform    Platform
+  deviceName  String
+  /// Identificador estable del dispositivo (no es un ID publicitario).
+  deviceUuid  String       @unique
+  pushToken   String?
+  appVersion  String?
+  batteryLevel Int?
+  lastSeenAt  DateTime?
+  status      DeviceStatus @default(ACTIVE)
+  linkedAt    DateTime     @default(now())
+  revokedAt   DateTime?
+
+  user      User       @relation(fields: [userId], references: [id], onDelete: Cascade)
+  family    Family     @relation(fields: [familyId], references: [id], onDelete: Cascade)
+  locations Location[]
+  sosEvents SosEvent[]
+  sessions  Session[]
+
+  @@index([familyId])
+  @@index([userId])
+  @@index([status])
+}
+
+/// Código de emparejamiento: único, temporal y de un solo uso. Se guarda HASHEADO.
+model PairingCode {
+  id              String        @id @default(uuid())
+  familyId        String
+  createdByUserId String
+  /// Hash del código (nunca se guarda el código en claro).
+  codeHash        String        @unique
+  /// Rol que tendrá quien canjee el código.
+  targetRole      MemberRole
+  /// Nombre sugerido para el perfil del menor a crear al canjear (opcional).
+  childDisplayName String?
+  childAgeBand    AgeBand?
+  status          PairingStatus @default(PENDING)
+  attempts        Int           @default(0)
+  expiresAt       DateTime
+  consumedAt      DateTime?
+  consumedByUserId String?
+  createdAt       DateTime      @default(now())
+
+  family      Family @relation(fields: [familyId], references: [id], onDelete: Cascade)
+  createdBy   User   @relation("CodeCreator", fields: [createdByUserId], references: [id], onDelete: Cascade)
+  consumedBy  User?  @relation("CodeConsumer", fields: [consumedByUserId], references: [id])
+
+  @@index([familyId])
+  @@index([status])
+  @@index([expiresAt])
+}
+
+/// Sesión / refresh token rotatorio y revocable.
+model Session {
+  id           String   @id @default(uuid())
+  userId       String
+  deviceId     String?
+  /// Hash del refresh token (nunca el token en claro).
+  tokenHash    String   @unique
+  userAgent    String?
+  ip           String?
+  expiresAt    DateTime
+  revokedAt    DateTime?
+  /// Si se rotó, apunta a la sesión que lo reemplazó (detección de reuso).
+  replacedById String?
+  createdAt    DateTime @default(now())
+
+  user   User    @relation(fields: [userId], references: [id], onDelete: Cascade)
+  device Device? @relation(fields: [deviceId], references: [id], onDelete: SetNull)
+
+  @@index([userId])
+  @@index([expiresAt])
+}
+
+/// Punto de ubicación con retención limitada (purga automática programada).
+model Location {
+  id             String   @id @default(uuid())
+  childProfileId String
+  deviceId       String?
+  latitude       Float
+  longitude      Float
+  accuracy       Float?
+  batteryLevel   Int?
+  /// Idempotencia ante reenvíos tras reconexión.
+  clientEventId  String?
+  recordedAt     DateTime
+  createdAt      DateTime @default(now())
+
+  childProfile ChildProfile @relation(fields: [childProfileId], references: [id], onDelete: Cascade)
+  device       Device?      @relation(fields: [deviceId], references: [id], onDelete: SetNull)
+
+  @@unique([deviceId, clientEventId])
+  @@index([childProfileId, recordedAt])
+  @@index([recordedAt])
+}
+
+/// Zona segura o peligrosa. iOS limita a ~20 regiones activas: priorizar en cliente.
+model Geofence {
+  id              String       @id @default(uuid())
+  familyId        String
+  childProfileId  String? // null = aplica a todos los menores de la familia
+  name            String
+  type            GeofenceType @default(CUSTOM)
+  latitude        Float
+  longitude       Float
+  radiusM         Int
+  active          Boolean      @default(true)
+  /// Horario opcional de vigencia (p. ej. solo en horas de colegio).
+  schedule        Json?
+  createdByUserId String
+  createdAt       DateTime     @default(now())
+  updatedAt       DateTime     @updatedAt
+
+  family Family          @relation(fields: [familyId], references: [id], onDelete: Cascade)
+  events GeofenceEvent[]
+
+  @@index([familyId])
+}
+
+model GeofenceEvent {
+  id             String            @id @default(uuid())
+  geofenceId     String
+  childProfileId String
+  type           GeofenceEventType
+  occurredAt     DateTime
+  createdAt      DateTime          @default(now())
+
+  geofence     Geofence     @relation(fields: [geofenceId], references: [id], onDelete: Cascade)
+  childProfile ChildProfile @relation(fields: [childProfileId], references: [id], onDelete: Cascade)
+
+  @@index([geofenceId])
+  @@index([childProfileId, occurredAt])
+}
+
+model Alert {
+  id             String        @id @default(uuid())
+  familyId       String
+  childProfileId String?
+  type           AlertType
+  severity       AlertSeverity @default(INFO)
+  status         AlertStatus   @default(OPEN)
+  title          String
+  message        String
+  /// Datos contextuales (ubicación, geocerca, etc.) — mínimos necesarios.
+  data           Json?
+  createdAt      DateTime      @default(now())
+  acknowledgedAt DateTime?
+  acknowledgedByUserId String?
+
+  family       Family        @relation(fields: [familyId], references: [id], onDelete: Cascade)
+  childProfile ChildProfile? @relation(fields: [childProfileId], references: [id], onDelete: SetNull)
+
+  @@index([familyId, status])
+  @@index([createdAt])
+}
+
+model SosEvent {
+  id             String    @id @default(uuid())
+  childProfileId String
+  deviceId       String?
+  latitude       Float?
+  longitude      Float?
+  accuracy       Float?
+  batteryLevel   Int?
+  message        String?
+  createdAt      DateTime  @default(now())
+  resolvedAt     DateTime?
+  resolvedByUserId String?
+
+  childProfile ChildProfile @relation(fields: [childProfileId], references: [id], onDelete: Cascade)
+  device       Device?      @relation(fields: [deviceId], references: [id], onDelete: SetNull)
+
+  @@index([childProfileId, createdAt])
+}
+
+/// Regla configurable del motor de reglas (Fase 1 simple, ampliable en Fase 3).
+model SafetyRule {
+  id          String   @id @default(uuid())
+  familyId    String
+  name        String
+  /// p. ej. "LOW_BATTERY", "EXIT_BEFORE_TIME"
+  type        String
+  /// Definición declarativa de la condición y la acción.
+  definition  Json
+  active      Boolean  @default(true)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  family Family @relation(fields: [familyId], references: [id], onDelete: Cascade)
+
+  @@index([familyId])
+}
+
+/// Registro de consentimiento (COPPA / GDPR-K). Auditable e inmutable.
+model ConsentRecord {
+  id             String      @id @default(uuid())
+  familyId       String
+  childProfileId String?
+  grantedByUserId String
+  type           ConsentType
+  version        String // versión del texto de consentimiento aceptado
+  grantedAt      DateTime    @default(now())
+  revokedAt      DateTime?
+
+  family       Family        @relation(fields: [familyId], references: [id], onDelete: Cascade)
+  childProfile ChildProfile? @relation(fields: [childProfileId], references: [id], onDelete: SetNull)
+
+  @@index([familyId])
+}
+
+/// Registro de auditoría inmutable (append-only) de acciones críticas.
+model AuditLog {
+  id           String   @id @default(uuid())
+  actorUserId  String?
+  familyId     String?
+  action       String // p. ej. "PAIRING_CONSUMED", "ROLE_CHANGED", "ACCOUNT_DELETED"
+  resourceType String?
+  resourceId   String?
+  metadata     Json?
+  ip           String?
+  userAgent    String?
+  createdAt    DateTime @default(now())
+
+  actor  User?   @relation(fields: [actorUserId], references: [id], onDelete: SetNull)
+  family Family? @relation(fields: [familyId], references: [id], onDelete: SetNull)
+
+  @@index([familyId, createdAt])
+  @@index([actorUserId, createdAt])
+}
