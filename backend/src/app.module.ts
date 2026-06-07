@@ -8,6 +8,7 @@ import configuration from './config/configuration';
 import { validateEnv } from './config/env.validation';
 import { PrismaModule } from './prisma/prisma.module';
 import { AuditModule } from './modules/audit/audit.module';
+import { HealthModule } from './modules/health/health.module';
 import { AuthModule } from './modules/auth/auth.module';
 import { AccountModule } from './modules/account/account.module';
 import { FamiliesModule } from './modules/families/families.module';
@@ -37,6 +38,7 @@ import { AuditService } from './modules/audit/audit.service';
     ScheduleModule.forRoot(),
     PrismaModule,
     AuditModule,
+    HealthModule,
     AuthModule,
     AccountModule,
     FamiliesModule,

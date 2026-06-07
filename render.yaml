@@ -1,0 +1,40 @@
+# Despliegue del backend de ChildrenSafe en Render (https://render.com) — plan gratuito.
+# Render lee este "Blueprint" del repo. Pasos:
+#  1. https://dashboard.render.com → New → Blueprint → conecta el repo childrensafe.
+#  2. Render detecta este archivo y crea el servicio "childrensafe-api".
+#  3. Te pedirá las variables marcadas con sync:false → pega:
+#       DATABASE_URL    = URL del SESSION pooler de Supabase (puerto 5432, con tu contraseña)
+#                         postgresql://postgres.hpyvgpxuctscsuoppgys:[PASSWORD]@aws-1-us-east-1.pooler.supabase.com:5432/postgres
+#       GOOGLE_CLIENT_ID= Web Client ID de Google Cloud (ver docs/GOOGLE-SIGNIN-SETUP.md)
+#  4. Deploy. Tu API quedará en https://childrensafe-api.onrender.com/api
+#     Healthcheck: https://childrensafe-api.onrender.com/api/health
+#
+# Luego, en Codemagic, pon API_BASE_URL = https://childrensafe-api.onrender.com/api y recompila el APK.
+#
+# Nota: el plan free "duerme" tras inactividad (la primera petición tarda ~30s en despertar).
+
+services:
+  - type: web
+    name: childrensafe-api
+    runtime: node
+    rootDir: backend
+    plan: free
+    region: virginia # cercano a Supabase us-east-1
+    buildCommand: npm ci && npx prisma generate && npm run build
+    startCommand: npx prisma migrate deploy && node dist/main.js
+    healthCheckPath: /api/health
+    envVars:
+      - key: NODE_ENV
+        value: production
+      - key: DATABASE_URL
+        sync: false # se pega en el panel (secreto)
+      - key: JWT_ACCESS_SECRET
+        generateValue: true # Render genera un secreto fuerte
+      - key: JWT_REFRESH_SECRET
+        generateValue: true
+      - key: GOOGLE_CLIENT_ID
+        sync: false
+      - key: CORS_ORIGINS
+        value: "*"
+      - key: LOCATION_RETENTION_HOURS
+        value: "72"
