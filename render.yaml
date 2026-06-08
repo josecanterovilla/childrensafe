@@ -20,7 +20,9 @@ services:
     rootDir: backend
     plan: free
     region: virginia # cercano a Supabase us-east-1
-    buildCommand: npm ci && npx prisma generate && npm run build
+    # --include=dev fuerza instalar devDependencies (@nestjs/cli, typescript, prisma) aunque
+    # NODE_ENV=production; son necesarias para `nest build`.
+    buildCommand: npm ci --include=dev && npx prisma generate && npm run build
     startCommand: npx prisma migrate deploy && node dist/main.js
     healthCheckPath: /api/health
     envVars:
