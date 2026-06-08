@@ -41,5 +41,8 @@ backend/prisma/*.db-journal
 .DS_Store
 Thumbs.db
 
+# ─── Claude Code (config local personal) ──────────────────
+.claude/settings.local.json
+
 # ─── Build local fuera de OneDrive ────────────────────────
 # (CS_BUILD_DIR apunta a C:\csb en local; nunca se versiona)
