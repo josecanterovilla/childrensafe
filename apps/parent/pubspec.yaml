@@ -13,6 +13,10 @@ dependencies:
   childrensafe_shared:
     path: ../shared
   google_sign_in: ^6.2.1
+  qr_flutter: ^4.1.0       # QR del código de emparejamiento
+  flutter_map: ^7.0.2      # mapa con OpenStreetMap (sin API key)
+  latlong2: ^0.9.1         # coordenadas para flutter_map
+  url_launcher: ^6.3.1     # abrir la ubicación en la app de mapas del sistema
 
 dev_dependencies:
   flutter_test:

@@ -1,4 +1,10 @@
 <manifest xmlns:android="http://schemas.android.com/apk/res/android">
+    <!-- Ubicación: para que la familia sepa que el menor está bien. Transparente y con su
+         conocimiento (ver pantalla "Qué se comparte"). Sin identificadores publicitarios. -->
+    <uses-permission android:name="android.permission.ACCESS_FINE_LOCATION"/>
+    <uses-permission android:name="android.permission.ACCESS_COARSE_LOCATION"/>
+    <uses-permission android:name="android.permission.INTERNET"/>
+
     <application
         android:label="childrensafe_child"
         android:name="${applicationName}"

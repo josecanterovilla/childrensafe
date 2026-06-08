@@ -1,8 +1,10 @@
 import 'package:childrensafe_shared/childrensafe_shared.dart';
 import 'package:flutter/material.dart';
 
+import '../family/family_detail_screen.dart';
+
 /// Panel del tutor. Carga las familias y muestra un resumen. Estados vacíos cuidados
-/// y lenguaje humano. (Mapa, reglas y reportes se añaden como pestañas en Fase 1/2.)
+/// y lenguaje humano. Al tocar una familia se abre su detalle (menores, mapa y alertas).
 class DashboardScreen extends StatefulWidget {
   const DashboardScreen({super.key, required this.api});
 
@@ -83,7 +85,11 @@ class _DashboardScreenState extends State<DashboardScreen> {
                     title: Text(f.name),
                     subtitle: Text('Tu rol: ${f.role.name}'),
                     trailing: const Icon(Icons.chevron_right),
-                    onTap: () {/* Navega al detalle/mapa de la familia */},
+                    onTap: () => Navigator.of(context).push(
+                      MaterialPageRoute(
+                        builder: (_) => FamilyDetailScreen(api: widget.api, family: f),
+                      ),
+                    ),
                   ),
                 );
               },

@@ -1,8 +1,12 @@
 import 'package:childrensafe_shared/childrensafe_shared.dart';
 import 'package:flutter/material.dart';
+import 'package:geolocator/geolocator.dart';
+
+import '../../services/location_reporter.dart';
 
 /// Inicio del menor: claro, tranquilo y no intimidante.
 /// - Estado "seguro".
+/// - Comparte la ubicación de forma transparente (con tarjeta de estado y permisos claros).
 /// - Botón SOS grande que se activa al MANTENER 3 segundos (evita activaciones por error).
 /// - Botón "Llegué bien".
 /// - Centro de transparencia (qué se comparte).
@@ -30,12 +34,40 @@ class _HomeScreenState extends State<HomeScreen> with SingleTickerProviderStateM
       if (status == AnimationStatus.completed) _fireSos();
     });
 
+  late final LocationReporter _reporter =
+      LocationReporter(api: widget.api, familyId: widget.familyId);
+
   bool _sending = false;
+  LocationReadiness? _locStatus;
+
+  @override
+  void initState() {
+    super.initState();
+    _startSharing();
+  }
 
   @override
   void dispose() {
     _hold.dispose();
+    _reporter.stop();
     super.dispose();
+  }
+
+  Future<void> _startSharing() async {
+    final status = await _reporter.start();
+    if (mounted) setState(() => _locStatus = status);
+  }
+
+  /// Reacción a un toque en la tarjeta de ubicación según el estado del permiso.
+  Future<void> _fixLocation() async {
+    switch (_locStatus) {
+      case LocationReadiness.serviceOff:
+        await Geolocator.openLocationSettings();
+      case LocationReadiness.deniedForever:
+        await Geolocator.openAppSettings();
+      default:
+        await _startSharing();
+    }
   }
 
   Future<void> _fireSos() async {
@@ -108,6 +140,8 @@ class _HomeScreenState extends State<HomeScreen> with SingleTickerProviderStateM
                   ),
                 ),
               ),
+              const SizedBox(height: 12),
+              _LocationStatusCard(status: _locStatus, onTap: _fixLocation),
               const Spacer(),
               // Botón SOS: mantener 3 segundos.
               GestureDetector(
@@ -195,6 +229,83 @@ class _HomeScreenState extends State<HomeScreen> with SingleTickerProviderStateM
             const SizedBox(height: 12),
             const Text('Nunca se leen tus mensajes ni tus fotos.'),
           ],
+        ),
+      ),
+    );
+  }
+}
+
+/// Tarjeta que muestra, con lenguaje claro, si se está compartiendo la ubicación.
+/// Si falta permiso o el GPS está apagado, toca para resolverlo.
+class _LocationStatusCard extends StatelessWidget {
+  const _LocationStatusCard({required this.status, required this.onTap});
+
+  final LocationReadiness? status;
+  final VoidCallback onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    final (IconData icon, Color color, String title, String subtitle, bool actionable) =
+        switch (status) {
+      null => (
+        Icons.location_searching,
+        Theme.of(context).colorScheme.outline,
+        'Activando ubicación…',
+        'Un momento, estamos preparándolo.',
+        false,
+      ),
+      LocationReadiness.ready => (
+        Icons.location_on,
+        AppTheme.ok,
+        'Compartiendo tu ubicación',
+        'Tu familia sabe que estás bien.',
+        false,
+      ),
+      LocationReadiness.serviceOff => (
+        Icons.location_off,
+        AppTheme.warning,
+        'La ubicación está apagada',
+        'Toca para encender el GPS.',
+        true,
+      ),
+      LocationReadiness.denied => (
+        Icons.location_disabled,
+        AppTheme.warning,
+        'Falta el permiso de ubicación',
+        'Toca para concederlo.',
+        true,
+      ),
+      LocationReadiness.deniedForever => (
+        Icons.location_disabled,
+        AppTheme.critical,
+        'Permiso de ubicación bloqueado',
+        'Toca para abrir los ajustes y activarlo.',
+        true,
+      ),
+    };
+
+    return Card(
+      child: InkWell(
+        borderRadius: BorderRadius.circular(16),
+        onTap: actionable ? onTap : null,
+        child: Padding(
+          padding: const EdgeInsets.all(16),
+          child: Row(
+            children: [
+              Icon(icon, color: color, size: 28),
+              const SizedBox(width: 12),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(title, style: Theme.of(context).textTheme.titleSmall),
+                    Text(subtitle, style: Theme.of(context).textTheme.bodySmall),
+                  ],
+                ),
+              ),
+              if (actionable) const Icon(Icons.chevron_right),
+            ],
+          ),
         ),
       ),
     );

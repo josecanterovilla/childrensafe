@@ -12,6 +12,10 @@ dependencies:
     sdk: flutter
   childrensafe_shared:
     path: ../shared
+  geolocator: ^13.0.1               # ubicación + permisos del sistema
+  device_info_plus: ^11.1.0         # nombre/plataforma del dispositivo
+  battery_plus: ^6.2.0              # nivel de batería para alertas
+  flutter_secure_storage: ^9.2.2    # persiste el UUID estable del dispositivo
 
 dev_dependencies:
   flutter_test:

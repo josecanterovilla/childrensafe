@@ -104,6 +104,10 @@ class ApiClient {
   Future<Map<String, dynamic>> getFamily(String familyId) async =>
       _get('/families/$familyId') as Map<String, dynamic>;
 
+  /// (Tutor) Perfiles de los menores de la familia.
+  Future<List<dynamic>> listChildren(String familyId) async =>
+      _get('/families/$familyId/children') as List<dynamic>;
+
   // ───────────────────────── Emparejamiento ───────────────
 
   /// (Tutor) Genera un código. Devuelve { code, qrPayload, expiresAt }.
@@ -155,9 +159,23 @@ class ApiClient {
   Future<Map<String, dynamic>> latestLocation(String familyId, String childId) async =>
       _get('/families/$familyId/children/$childId/location/latest') as Map<String, dynamic>;
 
+  /// (Tutor) Historial reciente de ubicaciones del menor (retención limitada en el backend).
+  Future<List<dynamic>> locationHistory(
+    String familyId,
+    String childId, {
+    int? limit,
+  }) async =>
+      _get('/families/$familyId/children/$childId/location/history'
+          '${limit != null ? '?limit=$limit' : ''}') as List<dynamic>;
+
   Future<List<dynamic>> listAlerts(String familyId, {String? status}) async =>
       _get('/families/$familyId/alerts${status != null ? '?status=$status' : ''}')
           as List<dynamic>;
+
+  /// (Tutor) Marca una alerta como vista.
+  Future<void> acknowledgeAlert(String familyId, String alertId) async {
+    await _post('/families/$familyId/alerts/$alertId/acknowledge', const {});
+  }
 
   Future<void> triggerSos(
     String familyId, {

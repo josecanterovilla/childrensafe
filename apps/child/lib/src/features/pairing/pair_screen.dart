@@ -1,10 +1,11 @@
 import 'package:childrensafe_shared/childrensafe_shared.dart';
 import 'package:flutter/material.dart';
 
+import '../../services/device_identity.dart';
 import '../home/home_screen.dart';
 
 /// Pantalla de emparejamiento del menor. Transparente: explica qué va a pasar.
-/// En producción, el deviceUuid y la plataforma se obtienen con device_info_plus.
+/// El deviceUuid (estable, no publicitario) y la plataforma se obtienen de [DeviceIdentity].
 class PairScreen extends StatefulWidget {
   const PairScreen({super.key, required this.api});
 
@@ -33,14 +34,11 @@ class _PairScreenState extends State<PairScreen> {
       _error = null;
     });
     try {
+      final device = await DeviceIdentity().describe();
       final res = await widget.api.joinFamily(
         code: _code.text.trim(),
         displayName: _name.text.trim().isEmpty ? null : _name.text.trim(),
-        device: {
-          'platform': 'ANDROID', // TODO: detectar con device_info_plus
-          'deviceName': 'Mi teléfono',
-          'deviceUuid': 'replace-with-real-device-id',
-        },
+        device: device,
       );
       if (!mounted) return;
       Navigator.of(context).pushReplacement(MaterialPageRoute(
