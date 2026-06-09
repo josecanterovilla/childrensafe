@@ -105,7 +105,7 @@ class _PairingCodeScreenState extends State<PairingCodeScreen> {
         ),
         const SizedBox(height: 16),
         DropdownButtonFormField<String>(
-          value: _ageBand,
+          initialValue: _ageBand,
           decoration: const InputDecoration(labelText: 'Etapa de edad'),
           items: [
             for (final (value, label) in _ageBands)
