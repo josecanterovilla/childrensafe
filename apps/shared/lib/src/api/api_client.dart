@@ -17,8 +17,10 @@ class ApiClient {
       : _tokens = tokenStore,
         _dio = Dio(BaseOptions(
           baseUrl: baseUrl,
-          connectTimeout: const Duration(seconds: 10),
-          receiveTimeout: const Duration(seconds: 15),
+          // Tolerante al "cold start" de planes gratuitos (p. ej. Render duerme y tarda
+          // ~30-40 s en despertar): si no, la primera petición tras un rato falla por timeout.
+          connectTimeout: const Duration(seconds: 30),
+          receiveTimeout: const Duration(seconds: 60),
           headers: {'Content-Type': 'application/json'},
         )) {
     _dio.interceptors.add(InterceptorsWrapper(
@@ -298,9 +300,13 @@ class ApiClient {
       final m = data['message'];
       message = m is List ? m.join('\n') : m.toString();
       code = data['code'] as String?;
-    } else if (e.type == DioExceptionType.connectionError ||
-        e.type == DioExceptionType.connectionTimeout) {
+    } else if (e.type == DioExceptionType.connectionError) {
       message = 'Sin conexión con el servidor.';
+    } else if (e.type == DioExceptionType.connectionTimeout ||
+        e.type == DioExceptionType.receiveTimeout ||
+        e.type == DioExceptionType.sendTimeout) {
+      message =
+          'El servidor tardó en responder (puede estar despertando). Espera unos segundos e inténtalo otra vez.';
     }
     return ApiException(message, statusCode: e.response?.statusCode, code: code);
   }
