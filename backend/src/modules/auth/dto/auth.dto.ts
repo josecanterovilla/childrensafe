@@ -1,9 +1,12 @@
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
+import { EmailCodePurpose } from '@prisma/client';
 import {
   IsEmail,
+  IsEnum,
   IsNotEmpty,
   IsOptional,
   IsString,
+  Length,
   MaxLength,
   MinLength,
 } from 'class-validator';
@@ -75,11 +78,36 @@ export class ForgotPasswordDto {
   email!: string;
 }
 
-export class ResetPasswordDto {
-  @ApiProperty({ description: 'Token recibido por correo' })
+export class VerifyEmailDto {
+  @ApiProperty({ example: 'madre@ejemplo.com' })
+  @IsEmail()
+  email!: string;
+
+  @ApiProperty({ description: 'Código de 6 dígitos recibido por correo', example: '482913' })
   @IsString()
-  @IsNotEmpty()
-  token!: string;
+  @Length(6, 6)
+  code!: string;
+}
+
+export class ResendCodeDto {
+  @ApiProperty({ example: 'madre@ejemplo.com' })
+  @IsEmail()
+  email!: string;
+
+  @ApiProperty({ enum: EmailCodePurpose, example: EmailCodePurpose.VERIFY_EMAIL })
+  @IsEnum(EmailCodePurpose)
+  purpose!: EmailCodePurpose;
+}
+
+export class ResetPasswordDto {
+  @ApiProperty({ example: 'madre@ejemplo.com' })
+  @IsEmail()
+  email!: string;
+
+  @ApiProperty({ description: 'Código de 6 dígitos recibido por correo', example: '482913' })
+  @IsString()
+  @Length(6, 6)
+  code!: string;
 
   @ApiProperty({ minLength: 10 })
   @IsString()

@@ -1,8 +1,19 @@
-import { randomBytes, createHash, timingSafeEqual } from 'node:crypto';
+import { randomBytes, randomInt, createHash, timingSafeEqual } from 'node:crypto';
 
 /** Genera un token opaco de alta entropía (URL-safe). */
 export function generateOpaqueToken(bytes = 48): string {
   return randomBytes(bytes).toString('base64url');
+}
+
+/**
+ * Genera un código numérico de N dígitos (con ceros a la izquierda) para enviar por correo.
+ * Usa una fuente uniforme y criptográficamente segura. La baja entropía se compensa con
+ * vida corta y máximo de intentos en el flujo que lo consume.
+ */
+export function generateNumericCode(digits = 6): string {
+  return randomInt(0, 10 ** digits)
+    .toString()
+    .padStart(digits, '0');
 }
 
 /** Hash determinista (SHA-256) para indexar/comparar tokens sin guardarlos en claro. */

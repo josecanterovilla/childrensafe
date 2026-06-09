@@ -60,14 +60,14 @@ describe('ChildrenSafe E2E (Fase 1)', () => {
     await app.close();
   });
 
-  it('registra un tutor y emite tokens', async () => {
+  it('registra un tutor y pide confirmar el correo', async () => {
     const res = await request(server)
       .post('/api/auth/register')
       .send({ email, password, displayName: 'Ana Tutora', familyName: 'Familia E2E' })
       .expect(201);
-    expect(res.body.accessToken).toBeDefined();
-    expect(res.body.refreshToken).toBeDefined();
-    expect(res.body.userId).toBeDefined();
+    expect(res.body.needsVerification).toBe(true);
+    // Este test no cubre el flujo de correo (ver auth-email.e2e); confirmamos directo en la BD.
+    await prisma.user.update({ where: { email }, data: { emailVerified: true } });
   });
 
   it('rechaza credenciales inválidas', async () => {

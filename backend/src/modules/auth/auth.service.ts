@@ -1,21 +1,25 @@
 import {
   BadRequestException,
   ConflictException,
+  ForbiddenException,
   Injectable,
   Logger,
   UnauthorizedException,
 } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
+import { EmailCodePurpose } from '@prisma/client';
 import { authenticator } from 'otplib';
 import { PrismaService } from '../../prisma/prisma.service';
 import { AuditService } from '../audit/audit.service';
+import { MailService } from '../mail/mail.service';
 import { TokensService, TokenPair } from './tokens.service';
 import { PasswordService } from './password.service';
 import { GoogleVerifier } from './google-verifier.service';
-import { generateOpaqueToken, sha256 } from '../../common/utils/crypto.util';
+import { generateNumericCode, safeEqualHex, sha256 } from '../../common/utils/crypto.util';
 import { LoginDto, RegisterDto } from './dto/auth.dto';
 
-const PASSWORD_RESET_TTL_MS = 30 * 60 * 1000; // 30 minutos
+const EMAIL_CODE_TTL_MS = 10 * 60 * 1000; // 10 minutos
+const MAX_CODE_ATTEMPTS = 5;
 
 // Tolera ±1 ventana de 30 s al verificar TOTP (desfase de reloj entre el dispositivo y el servidor).
 authenticator.options = { window: 1 };
@@ -36,10 +40,17 @@ export class AuthService {
     private readonly audit: AuditService,
     private readonly config: ConfigService,
     private readonly google: GoogleVerifier,
+    private readonly mail: MailService,
   ) {}
 
-  /** Registro de un tutor + creación opcional de su familia (queda como PARENT). */
-  async register(dto: RegisterDto, ctx: RequestContext): Promise<TokenPair & { userId: string }> {
+  /**
+   * Registro de un tutor + creación de su familia (queda como PARENT). NO emite tokens:
+   * envía un código de confirmación al correo. El acceso se obtiene tras `verifyEmail`.
+   */
+  async register(
+    dto: RegisterDto,
+    ctx: RequestContext,
+  ): Promise<{ needsVerification: true; email: string }> {
     const existing = await this.prisma.user.findUnique({ where: { email: dto.email } });
     if (existing) {
       throw new ConflictException('Ya existe una cuenta con ese correo');
@@ -76,8 +87,8 @@ export class AuthService {
       userAgent: ctx.userAgent,
     });
 
-    const pair = await this.tokens.issuePair(user.id, ctx);
-    return { userId: user.id, ...pair };
+    await this.issueEmailCode(user.id, EmailCodePurpose.VERIFY_EMAIL, dto.email);
+    return { needsVerification: true, email: dto.email };
   }
 
   async login(dto: LoginDto, ctx: RequestContext): Promise<TokenPair & { userId: string }> {
@@ -94,6 +105,16 @@ export class AuthService {
     const ok = await this.passwords.verify(user.passwordHash, dto.password);
     if (!ok) {
       throw invalid;
+    }
+
+    // Solo tras validar la contraseña revelamos que falta confirmar el correo (no antes,
+    // para no filtrar el estado de la cuenta a quien no conoce la contraseña).
+    if (!user.emailVerified) {
+      await this.issueEmailCode(user.id, EmailCodePurpose.VERIFY_EMAIL, user.email as string);
+      throw new ForbiddenException({
+        code: 'EMAIL_NOT_VERIFIED',
+        message: 'Confirma tu correo para continuar. Te enviamos un código nuevo.',
+      });
     }
 
     if (user.mfaEnabled) {
@@ -211,27 +232,66 @@ export class AuthService {
     return { success: true };
   }
 
+  // ─────────────────────── Confirmación de correo ───────────────────────
+
+  /**
+   * Confirma el correo con el código recibido y, si es válido, emite tokens (el usuario
+   * queda dentro). El código prueba la posesión del correo; la contraseña ya se fijó al registrar.
+   */
+  async verifyEmail(
+    email: string,
+    code: string,
+    ctx: RequestContext,
+  ): Promise<TokenPair & { userId: string }> {
+    const user = await this.prisma.user.findUnique({ where: { email } });
+    if (!user) {
+      throw new BadRequestException('Código inválido o expirado');
+    }
+    if (user.emailVerified) {
+      throw new BadRequestException('La cuenta ya está confirmada. Inicia sesión.');
+    }
+
+    await this.consumeEmailCode(user.id, EmailCodePurpose.VERIFY_EMAIL, code);
+    await this.prisma.user.update({ where: { id: user.id }, data: { emailVerified: true } });
+
+    await this.audit.record({
+      actorUserId: user.id,
+      action: 'EMAIL_VERIFIED',
+      resourceType: 'User',
+      resourceId: user.id,
+      ip: ctx.ip,
+      userAgent: ctx.userAgent,
+    });
+
+    const pair = await this.tokens.issuePair(user.id, ctx);
+    return { userId: user.id, ...pair };
+  }
+
+  /** Reenvía un código (confirmación o recuperación). Respuesta uniforme (anti-enumeración). */
+  async resendCode(email: string, purpose: EmailCodePurpose): Promise<{ success: true }> {
+    const user = await this.prisma.user.findUnique({ where: { email } });
+    if (user) {
+      const eligible =
+        purpose === EmailCodePurpose.VERIFY_EMAIL
+          ? !user.emailVerified
+          : !!user.passwordHash && user.status === 'ACTIVE';
+      if (eligible) {
+        await this.issueEmailCode(user.id, purpose, email);
+      }
+    }
+    return { success: true };
+  }
+
   // ─────────────────────── Recuperación de contraseña ───────────────────────
 
   /**
-   * Inicia la recuperación. Responde SIEMPRE igual (anti-enumeración de cuentas).
-   * Si la cuenta existe, crea un token de un solo uso y lo "envía" por correo.
+   * Inicia la recuperación. Responde SIEMPRE igual (anti-enumeración). Si la cuenta existe
+   * y tiene contraseña, envía un código de un solo uso por correo.
    */
   async forgotPassword(email: string, ctx: RequestContext): Promise<{ success: true }> {
     const user = await this.prisma.user.findUnique({ where: { email } });
     if (user && user.passwordHash && user.status === 'ACTIVE') {
-      const token = generateOpaqueToken(32);
-      await this.prisma.passwordReset.create({
-        data: {
-          userId: user.id,
-          tokenHash: sha256(token),
-          expiresAt: new Date(Date.now() + PASSWORD_RESET_TTL_MS),
-        },
-      });
-      // TODO(producción): enviar el enlace por correo. En desarrollo se registra para pruebas.
-      if (this.config.get<string>('env') !== 'production') {
-        this.logger.log(`[reset] token para ${email}: ${token}`);
-      }
+      await this.issueEmailCode(user.id, EmailCodePurpose.PASSWORD_RESET, email);
       await this.audit.record({
         actorUserId: user.id,
         action: 'PASSWORD_RESET_REQUESTED',
@@ -244,37 +304,87 @@ export class AuthService {
     return { success: true };
   }
 
-  /** Completa la recuperación: valida el token, cambia la contraseña y revoca sesiones. */
-  async resetPassword(token: string, newPassword: string): Promise<{ success: true }> {
-    const record = await this.prisma.passwordReset.findUnique({
-      where: { tokenHash: sha256(token) },
-    });
-    if (!record || record.usedAt || record.expiresAt < new Date()) {
-      throw new BadRequestException('Token inválido o expirado');
+  /** Completa la recuperación: valida el código, cambia la contraseña y revoca sesiones. */
+  async resetPassword(
+    email: string,
+    code: string,
+    newPassword: string,
+  ): Promise<{ success: true }> {
+    const user = await this.prisma.user.findUnique({ where: { email } });
+    if (!user) {
+      throw new BadRequestException('Código inválido o expirado');
     }
 
+    await this.consumeEmailCode(user.id, EmailCodePurpose.PASSWORD_RESET, code);
+
     const passwordHash = await this.passwords.hash(newPassword);
-    await this.prisma.$transaction([
-      this.prisma.user.update({ where: { id: record.userId }, data: { passwordHash } }),
-      this.prisma.passwordReset.update({
-        where: { id: record.id },
-        data: { usedAt: new Date() },
-      }),
-    ]);
-    // Invalida cualquier reset pendiente y todas las sesiones (seguridad).
-    await this.prisma.passwordReset.updateMany({
-      where: { userId: record.userId, usedAt: null },
-      data: { usedAt: new Date() },
+    // Recibir el código por correo también confirma la posesión del correo.
+    await this.prisma.user.update({
+      where: { id: user.id },
+      data: { passwordHash, emailVerified: true },
     });
-    await this.tokens.revokeAllForUser(record.userId);
+    await this.tokens.revokeAllForUser(user.id);
 
     await this.audit.record({
-      actorUserId: record.userId,
+      actorUserId: user.id,
       action: 'PASSWORD_RESET_COMPLETED',
       resourceType: 'User',
-      resourceId: record.userId,
+      resourceId: user.id,
     });
     return { success: true };
+  }
+
+  // ─────────────────────── Códigos por correo (helpers) ───────────────────────
+
+  /** Invalida los códigos pendientes del mismo propósito, crea uno nuevo y lo envía. */
+  private async issueEmailCode(
+    userId: string,
+    purpose: EmailCodePurpose,
+    email: string,
+  ): Promise<void> {
+    await this.prisma.emailCode.updateMany({
+      where: { userId, purpose, usedAt: null },
+      data: { usedAt: new Date() },
+    });
+    const code = generateNumericCode(6);
+    await this.prisma.emailCode.create({
+      data: {
+        userId,
+        purpose,
+        codeHash: sha256(code),
+        expiresAt: new Date(Date.now() + EMAIL_CODE_TTL_MS),
+      },
+    });
+    await this.mail.sendCode(email, code, purpose);
+  }
+
+  /** Valida el último código vigente (vigencia + intentos) y lo marca como usado. */
+  private async consumeEmailCode(
+    userId: string,
+    purpose: EmailCodePurpose,
+    code: string,
+  ): Promise<void> {
+    const record = await this.prisma.emailCode.findFirst({
+      where: { userId, purpose, usedAt: null },
+      orderBy: { createdAt: 'desc' },
+    });
+    if (!record || record.expiresAt < new Date()) {
+      throw new BadRequestException('Código inválido o expirado');
+    }
+    if (record.attempts >= MAX_CODE_ATTEMPTS) {
+      throw new BadRequestException('Demasiados intentos. Solicita un código nuevo.');
+    }
+    if (!safeEqualHex(record.codeHash, sha256(code))) {
+      await this.prisma.emailCode.update({
+        where: { id: record.id },
+        data: { attempts: { increment: 1 } },
+      });
+      throw new BadRequestException('Código incorrecto');
+    }
+    await this.prisma.emailCode.update({
+      where: { id: record.id },
+      data: { usedAt: new Date() },
+    });
   }
 
   /** Cambia la contraseña reautenticando con la actual; revoca todas las sesiones. */

@@ -24,6 +24,8 @@ export class AllExceptionsFilter implements ExceptionFilter {
     let status = HttpStatus.INTERNAL_SERVER_ERROR;
     let message: string | string[] = 'Error interno del servidor';
     let error = 'InternalServerError';
+    // Código de aplicación opcional (p. ej. 'EMAIL_NOT_VERIFIED') para que el cliente reaccione.
+    let code: string | undefined;
 
     if (exception instanceof HttpException) {
       status = exception.getStatus();
@@ -34,6 +36,7 @@ export class AllExceptionsFilter implements ExceptionFilter {
         const b = body as Record<string, unknown>;
         message = (b.message as string | string[]) ?? message;
         error = (b.error as string) ?? exception.name;
+        code = (b.code as string) ?? undefined;
       }
     } else if (exception instanceof Prisma.PrismaClientKnownRequestError) {
       // Errores conocidos de Prisma mapeados a códigos HTTP seguros.
@@ -62,6 +65,7 @@ export class AllExceptionsFilter implements ExceptionFilter {
     response.status(status).json({
       statusCode: status,
       error,
+      ...(code ? { code } : {}),
       message,
       path: request.url,
       timestamp: new Date().toISOString(),

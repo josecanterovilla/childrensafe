@@ -2,6 +2,7 @@ import { INestApplication, ValidationPipe } from '@nestjs/common';
 import { Test } from '@nestjs/testing';
 import request from 'supertest';
 import { authenticator } from 'otplib';
+import { EmailCodePurpose } from '@prisma/client';
 import { AppModule } from '../src/app.module';
 import { PrismaService } from '../src/prisma/prisma.service';
 import { sha256 } from '../src/common/utils/crypto.util';
@@ -38,12 +39,18 @@ describe('ChildrenSafe E2E (cuenta y seguridad)', () => {
     prisma = app.get(PrismaService);
     server = app.getHttpServer();
 
-    const reg = await request(server)
+    await request(server)
       .post('/api/auth/register')
       .send({ email, password: P0, displayName: 'Ana Tutora', familyName: 'Familia Cuenta' })
       .expect(201);
-    userId = reg.body.userId;
-    token = reg.body.accessToken;
+    // Este test no cubre el flujo de correo (ver auth-email.e2e); confirmamos directo en la BD.
+    const u = await prisma.user.update({ where: { email }, data: { emailVerified: true } });
+    userId = u.id;
+    const login = await request(server)
+      .post('/api/auth/login')
+      .send({ email, password: P0 })
+      .expect(201);
+    token = login.body.accessToken;
 
     const fams = await request(server)
       .get('/api/families')
@@ -65,9 +72,11 @@ describe('ChildrenSafe E2E (cuenta y seguridad)', () => {
     await app.close();
   });
 
-  it('forgot-password responde 200 y crea un token de reseteo', async () => {
+  it('forgot-password responde 200 y crea un código de reseteo', async () => {
     await request(server).post('/api/auth/forgot-password').send({ email }).expect(200);
-    const count = await prisma.passwordReset.count({ where: { userId } });
+    const count = await prisma.emailCode.count({
+      where: { userId, purpose: EmailCodePurpose.PASSWORD_RESET },
+    });
     expect(count).toBeGreaterThanOrEqual(1);
   });
 
@@ -78,19 +87,20 @@ describe('ChildrenSafe E2E (cuenta y seguridad)', () => {
       .expect(200);
   });
 
-  it('reset-password cambia la contraseña con un token válido', async () => {
-    const rawToken = `TESTTOKEN-${Date.now()}`;
-    await prisma.passwordReset.create({
+  it('reset-password cambia la contraseña con un código válido', async () => {
+    const code = '654321';
+    await prisma.emailCode.create({
       data: {
         userId,
-        tokenHash: sha256(rawToken),
+        purpose: EmailCodePurpose.PASSWORD_RESET,
+        codeHash: sha256(code),
         expiresAt: new Date(Date.now() + 10 * 60 * 1000),
       },
     });
     const P1 = 'contrasena-reseteada-123';
     await request(server)
       .post('/api/auth/reset-password')
-      .send({ token: rawToken, newPassword: P1 })
+      .send({ email, code, newPassword: P1 })
       .expect(200);
 
     await request(server).post('/api/auth/login').send({ email, password: P1 }).expect(201);
@@ -98,10 +108,10 @@ describe('ChildrenSafe E2E (cuenta y seguridad)', () => {
     currentPassword = P1;
   });
 
-  it('reset-password con token inválido falla (400)', async () => {
+  it('reset-password con código inválido falla (400)', async () => {
     await request(server)
       .post('/api/auth/reset-password')
-      .send({ token: 'token-que-no-existe', newPassword: 'cualquiera-larga-123' })
+      .send({ email, code: '111111', newPassword: 'cualquiera-larga-123' })
       .expect(400);
   });
 

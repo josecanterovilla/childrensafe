@@ -95,6 +95,11 @@ enum ConsentType {
   DATA_PROCESSING
 }
 
+enum EmailCodePurpose {
+  VERIFY_EMAIL // confirmación de correo al registrarse
+  PASSWORD_RESET // recuperación de contraseña
+}
+
 // ─────────────────────────── Modelos ───────────────────────────
 
 /// Persona con identidad en el sistema. Los adultos se autentican (email + hash).
@@ -108,6 +113,8 @@ model User {
   googleId     String?    @unique
   displayName  String
   status       UserStatus @default(ACTIVE)
+  /// Si el tutor confirmó su correo (por código). Las cuentas de Google nacen verificadas.
+  emailVerified Boolean   @default(false)
 
   // MFA opcional (TOTP) para tutores
   mfaEnabled Boolean @default(false)
@@ -122,23 +129,27 @@ model User {
   createdCodes   PairingCode[]   @relation("CodeCreator")
   consumedCodes  PairingCode[]   @relation("CodeConsumer")
   auditLogs      AuditLog[]
-  passwordResets PasswordReset[]
+  emailCodes     EmailCode[]
 
   @@index([status])
 }
 
-/// Token de recuperación de contraseña: de un solo uso, temporal, guardado HASHEADO.
-model PasswordReset {
-  id        String    @id @default(uuid())
+/// Código numérico de un solo uso enviado por correo: confirmación de cuenta o
+/// recuperación de contraseña. Se guarda HASHEADO. Vida corta y máximo de intentos
+/// para compensar la baja entropía de un código de 6 dígitos.
+model EmailCode {
+  id        String           @id @default(uuid())
   userId    String
-  tokenHash String    @unique
+  purpose   EmailCodePurpose
+  codeHash  String
+  attempts  Int              @default(0)
   expiresAt DateTime
   usedAt    DateTime?
-  createdAt DateTime  @default(now())
+  createdAt DateTime         @default(now())
 
   user User @relation(fields: [userId], references: [id], onDelete: Cascade)
 
-  @@index([userId])
+  @@index([userId, purpose])
   @@index([expiresAt])
 }
 

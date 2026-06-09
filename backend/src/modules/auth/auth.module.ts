@@ -7,9 +7,10 @@ import { TokensService } from './tokens.service';
 import { PasswordService } from './password.service';
 import { GoogleVerifier } from './google-verifier.service';
 import { JwtStrategy } from './strategies/jwt.strategy';
+import { MailModule } from '../mail/mail.module';
 
 @Module({
-  imports: [PassportModule, JwtModule.register({})],
+  imports: [PassportModule, JwtModule.register({}), MailModule],
   controllers: [AuthController],
   providers: [AuthService, TokensService, PasswordService, GoogleVerifier, JwtStrategy],
   exports: [TokensService, PasswordService],

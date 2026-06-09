@@ -40,3 +40,9 @@ services:
         value: "*"
       - key: LOCATION_RETENTION_HOURS
         value: "72"
+      # Correo (Resend) para los códigos de confirmación y recuperación.
+      # RESEND_API_KEY se pega en el panel (secreto). Sin él, los códigos van solo a los logs.
+      - key: RESEND_API_KEY
+        sync: false
+      - key: MAIL_FROM
+        value: "ChildrenSafe <onboarding@resend.dev>"

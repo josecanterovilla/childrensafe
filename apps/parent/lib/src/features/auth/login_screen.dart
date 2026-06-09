@@ -3,6 +3,9 @@ import 'package:flutter/material.dart';
 import 'package:google_sign_in/google_sign_in.dart';
 
 import '../dashboard/dashboard_screen.dart';
+import 'forgot_password_screen.dart';
+import 'register_screen.dart';
+import 'verify_email_screen.dart';
 
 /// Pantalla de inicio de sesión del tutor. La lógica de red está en [ApiClient];
 /// aquí solo se gestiona el estado local del formulario y la navegación.
@@ -37,6 +40,14 @@ class _LoginScreenState extends State<LoginScreen> {
       await widget.api.login(email: _email.text.trim(), password: _password.text);
       _goToDashboard();
     } on ApiException catch (e) {
+      // Si falta confirmar el correo, el backend ya reenvió un código: vamos a verificar.
+      if (e.code == 'EMAIL_NOT_VERIFIED') {
+        if (!mounted) return;
+        Navigator.of(context).push(MaterialPageRoute(
+          builder: (_) => VerifyEmailScreen(api: widget.api, email: _email.text.trim()),
+        ));
+        return;
+      }
       setState(() => _error = e.message);
     } finally {
       if (mounted) setState(() => _loading = false);
@@ -70,7 +81,8 @@ class _LoginScreenState extends State<LoginScreen> {
     } on ApiException catch (e) {
       setState(() => _error = e.message);
     } catch (_) {
-      setState(() => _error = 'No se pudo iniciar con Google.');
+      setState(() => _error =
+          'El inicio con Google aún no está disponible en esta versión. Puedes crear tu cuenta con correo.');
     } finally {
       if (mounted) setState(() => _loading = false);
     }
@@ -82,6 +94,14 @@ class _LoginScreenState extends State<LoginScreen> {
       MaterialPageRoute(builder: (_) => DashboardScreen(api: widget.api)),
     );
   }
+
+  void _goForgot() => Navigator.of(context).push(
+        MaterialPageRoute(builder: (_) => ForgotPasswordScreen(api: widget.api)),
+      );
+
+  void _goRegister() => Navigator.of(context).push(
+        MaterialPageRoute(builder: (_) => RegisterScreen(api: widget.api)),
+      );
 
   @override
   Widget build(BuildContext context) {
@@ -127,7 +147,14 @@ class _LoginScreenState extends State<LoginScreen> {
                           height: 22, width: 22, child: CircularProgressIndicator(strokeWidth: 2))
                       : const Text('Entrar'),
                 ),
-                const SizedBox(height: 16),
+                Align(
+                  alignment: Alignment.centerRight,
+                  child: TextButton(
+                    onPressed: _loading ? null : _goForgot,
+                    child: const Text('¿Olvidaste tu contraseña?'),
+                  ),
+                ),
+                const SizedBox(height: 8),
                 Row(
                   children: [
                     const Expanded(child: Divider()),
@@ -144,6 +171,17 @@ class _LoginScreenState extends State<LoginScreen> {
                   icon: const Icon(Icons.account_circle_outlined),
                   label: const Text('Continuar con Google'),
                   style: OutlinedButton.styleFrom(minimumSize: const Size.fromHeight(52)),
+                ),
+                const SizedBox(height: 12),
+                Row(
+                  mainAxisAlignment: MainAxisAlignment.center,
+                  children: [
+                    Text('¿No tienes cuenta?', style: Theme.of(context).textTheme.bodyMedium),
+                    TextButton(
+                      onPressed: _loading ? null : _goRegister,
+                      child: const Text('Crear cuenta'),
+                    ),
+                  ],
                 ),
               ],
             ),

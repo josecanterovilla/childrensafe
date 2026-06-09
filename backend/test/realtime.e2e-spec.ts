@@ -50,12 +50,17 @@ describe('ChildrenSafe E2E (tiempo real)', () => {
     const port = (server.address() as AddressInfo).port;
     baseUrl = `http://127.0.0.1:${port}`;
 
-    // Tutor + familia
-    const reg = await request(server)
+    // Tutor + familia (confirmamos el correo directo en la BD; el flujo de correo se prueba aparte)
+    await request(server)
       .post('/api/auth/register')
       .send({ email, password, displayName: 'Ana Tutora', familyName: 'Familia RT' })
       .expect(201);
-    parentToken = reg.body.accessToken;
+    await prisma.user.update({ where: { email }, data: { emailVerified: true } });
+    const login = await request(server)
+      .post('/api/auth/login')
+      .send({ email, password })
+      .expect(201);
+    parentToken = login.body.accessToken;
     const fams = await request(server)
       .get('/api/families')
       .set('Authorization', `Bearer ${parentToken}`)

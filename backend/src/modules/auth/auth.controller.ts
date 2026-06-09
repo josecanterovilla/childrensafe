@@ -15,7 +15,9 @@ import {
   MfaDisableDto,
   RefreshDto,
   RegisterDto,
+  ResendCodeDto,
   ResetPasswordDto,
+  VerifyEmailDto,
 } from './dto/auth.dto';
 
 @ApiTags('auth')
@@ -30,9 +32,26 @@ export class AuthController {
   @Public()
   @Throttle({ default: { limit: 5, ttl: 60_000 } })
   @Post('register')
-  @ApiOperation({ summary: 'Registra un tutor y crea su familia' })
+  @ApiOperation({ summary: 'Registra un tutor y envía un código de confirmación al correo' })
   register(@Body() dto: RegisterDto, @Req() req: Request) {
     return this.auth.register(dto, this.ctx(req));
+  }
+
+  @Public()
+  @Throttle({ default: { limit: 10, ttl: 60_000 } })
+  @Post('verify-email')
+  @ApiOperation({ summary: 'Confirma el correo con el código y emite tokens' })
+  verifyEmail(@Body() dto: VerifyEmailDto, @Req() req: Request) {
+    return this.auth.verifyEmail(dto.email, dto.code, this.ctx(req));
+  }
+
+  @Public()
+  @Throttle({ default: { limit: 3, ttl: 60_000 } })
+  @HttpCode(200)
+  @Post('resend-code')
+  @ApiOperation({ summary: 'Reenvía un código de confirmación o de recuperación' })
+  resendCode(@Body() dto: ResendCodeDto) {
+    return this.auth.resendCode(dto.email, dto.purpose);
   }
 
   @Public()
@@ -79,9 +98,9 @@ export class AuthController {
   @Throttle({ default: { limit: 10, ttl: 60_000 } })
   @HttpCode(200)
   @Post('reset-password')
-  @ApiOperation({ summary: 'Restablece la contraseña con el token recibido' })
+  @ApiOperation({ summary: 'Restablece la contraseña con el código recibido' })
   resetPassword(@Body() dto: ResetPasswordDto) {
-    return this.auth.resetPassword(dto.token, dto.newPassword);
+    return this.auth.resetPassword(dto.email, dto.code, dto.newPassword);
   }
 
   @ApiBearerAuth()

@@ -23,6 +23,12 @@ export interface AppConfig {
     /** Web OAuth Client ID; audiencia esperada del ID token de Google. */
     clientId: string;
   };
+  mail: {
+    /** API key de Resend. Si está vacía, los códigos se registran en logs (modo desarrollo). */
+    resendApiKey: string;
+    /** Remitente de los correos (debe pertenecer a un dominio verificado en Resend). */
+    from: string;
+  };
 }
 
 export default (): AppConfig => ({
@@ -47,5 +53,9 @@ export default (): AppConfig => ({
   },
   google: {
     clientId: process.env.GOOGLE_CLIENT_ID ?? '',
+  },
+  mail: {
+    resendApiKey: process.env.RESEND_API_KEY ?? '',
+    from: process.env.MAIL_FROM ?? 'ChildrenSafe <onboarding@resend.dev>',
   },
 });

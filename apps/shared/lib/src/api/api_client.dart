@@ -51,19 +51,49 @@ class ApiClient {
 
   // ───────────────────────── Auth ─────────────────────────
 
+  /// Registra al tutor. NO emite tokens: el backend envía un código de confirmación al correo.
+  /// El acceso se obtiene después con [verifyEmail].
   Future<void> register({
     required String email,
     required String password,
     required String displayName,
     String? familyName,
   }) async {
-    final res = await _post('/auth/register', {
+    await _post('/auth/register', {
       'email': email,
       'password': password,
       'displayName': displayName,
       if (familyName != null) 'familyName': familyName,
     });
+  }
+
+  /// Confirma el correo con el código recibido y guarda los tokens (queda dentro).
+  Future<void> verifyEmail({required String email, required String code}) async {
+    final res = await _post('/auth/verify-email', {'email': email, 'code': code});
     await _saveTokens(res);
+  }
+
+  /// Reenvía un código. [purpose] es 'VERIFY_EMAIL' o 'PASSWORD_RESET'.
+  Future<void> resendCode({required String email, required String purpose}) async {
+    await _post('/auth/resend-code', {'email': email, 'purpose': purpose});
+  }
+
+  /// Solicita un código de recuperación de contraseña (respuesta uniforme: no revela si existe).
+  Future<void> forgotPassword(String email) async {
+    await _post('/auth/forgot-password', {'email': email});
+  }
+
+  /// Cambia la contraseña usando el código recibido por correo.
+  Future<void> resetPassword({
+    required String email,
+    required String code,
+    required String newPassword,
+  }) async {
+    await _post('/auth/reset-password', {
+      'email': email,
+      'code': code,
+      'newPassword': newPassword,
+    });
   }
 
   Future<void> login({
@@ -263,13 +293,15 @@ class ApiClient {
   ApiException _toApiException(DioException e) {
     final data = e.response?.data;
     String message = 'No pudimos completar la acción. Revisa tu conexión e inténtalo de nuevo.';
+    String? code;
     if (data is Map && data['message'] != null) {
       final m = data['message'];
       message = m is List ? m.join('\n') : m.toString();
+      code = data['code'] as String?;
     } else if (e.type == DioExceptionType.connectionError ||
         e.type == DioExceptionType.connectionTimeout) {
       message = 'Sin conexión con el servidor.';
     }
-    return ApiException(message, statusCode: e.response?.statusCode);
+    return ApiException(message, statusCode: e.response?.statusCode, code: code);
   }
 }
