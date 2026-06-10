@@ -20,6 +20,11 @@ workflows:
     max_build_duration: 60
     instance_type: mac_mini_m2
     environment:
+      # Firma el APK release con el keystore subido a Codemagic (reference name "childrensafe").
+      # Expone CM_KEYSTORE_PATH / CM_KEYSTORE_PASSWORD / CM_KEY_ALIAS / CM_KEY_PASSWORD,
+      # que lee android/app/build.gradle.kts. Da una huella SHA-1 estable para Google Sign-In.
+      android_signing:
+        - childrensafe
       flutter: stable
       groups:
         - childrensafe
